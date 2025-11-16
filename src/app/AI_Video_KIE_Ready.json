@@ -1,0 +1,94 @@
+{
+  "name": "AI Video Generator (KIE.ai Base64 Ready)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "generate-video",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "generate-video"
+    },
+    {
+      "parameters": {
+        "mode": "chat",
+        "systemMessage": "You are an expert viral video concept writer creating hyper-detailed \"found footage\" scenes.\n\nThe user provides:\n• idea: a short concept for the video  \n• image_url: a photo link of a real person\n\nYou cannot see the image, but imagine it describes the main person in the story.\nUse the image URL context to describe that person in detail — gender, hair, clothes, emotion — \nas if you can see the picture. Always assume that this person is the hero of the video. \nAlways start your video by referring to that person (e.g., “The same man from the uploaded image appears on camera…”).\n\nRules:\n• Length 500–2000 chars  \n• Roman Urdu + English dialogue  \n• Include timestamps [00:10], [00:20], etc.  \n• Pakistani or realistic context  \n• Flowing paragraph, no meta text",
+        "text": "=User idea: {{ $json.body.idea }}\nUser image: {{ $json.body.image_url }}\nDescribe this image person naturally as the main character."
+      },
+      "name": "AI Agent",
+      "type": "n8n-nodes-base.openai",
+      "typeVersion": 2,
+      "position": [550, 300],
+      "credentials": {
+        "openAIApi": "Your OpenAI Credential"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const aiOutput = $('AI Agent').item.json.output;\nconst image_url = $json.image_url || $json.body?.image_url;\n\nif (!aiOutput) {\n  return [{ json: { prompt: \"AI output missing\", image_url } }];\n}\n\nconst safePrompt = aiOutput.toString().replace(/\\n/g, ' ').replace(/\\\"/g, '\\\\\"').trim();\n\nreturn [{ json: { prompt: safePrompt, image_url } }];"
+      },
+      "name": "Safe Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.image_url }}",
+        "responseFormat": "file",
+        "options": {},
+        "binaryPropertyName": "data"
+      },
+      "name": "Get Image as Binary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const prompt = $json.prompt;\nconst base64Image = $binary.data.data.toString('base64');\nreturn [{ json: { prompt, image_base64: `data:image/jpeg;base64,${base64Image}` } }];"
+      },
+      "name": "Convert to Base64",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.kie.ai/api/v1/jobs/createTask",
+        "options": {},
+        "method": "POST",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer 6339cbbdd1988363eed15d0eee842c3f\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"sora-2-text-to-video\",\n  \"callBackUrl\": \"http://localhost:5678/webhook-test/video-callback\",\n  \"input\": {\n    \"prompt\": \"{{ $json.prompt }}\",\n    \"image\": \"{{ $json.image_base64 }}\",\n    \"aspect_ratio\": \"landscape\",\n    \"n_frames\": \"10\",\n    \"remove_watermark\": true\n  }\n}"
+      },
+      "name": "Generate Video (KIE.ai)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1550, 300]
+    },
+    {
+      "parameters": {
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1800, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [ [ { "node": "AI Agent", "type": "main", "index": 0 } ] ] },
+    "AI Agent": { "main": [ [ { "node": "Safe Prompt", "type": "main", "index": 0 } ] ] },
+    "Safe Prompt": { "main": [ [ { "node": "Get Image as Binary", "type": "main", "index": 0 } ] ] },
+    "Get Image as Binary": { "main": [ [ { "node": "Convert to Base64", "type": "main", "index": 0 } ] ] },
+    "Convert to Base64": { "main": [ [ { "node": "Generate Video (KIE.ai)", "type": "main", "index": 0 } ] ] },
+    "Generate Video (KIE.ai)": { "main": [ [ { "node": "Respond to Webhook", "type": "main", "index": 0 } ] ] }
+  }
+}
